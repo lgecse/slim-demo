@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: game-coordinator
+  labels:
+    app: guessing-game
+    role: coordinator
+spec:
+  containers:
+  - name: coordinator
+    image: slim-guessing-game:latest
+    imagePullPolicy: Never  # For local development
+    envFrom:
+      - secretRef:
+          name: game-env
+    command: ["guessing-game", "coordinator"]
+    args:
+      - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
+      - --shared-secret=secret123
+      - --game-channel=classroom/guessing-game
+      - --max-questions=20
+      - --max-guesses=3
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+  serviceAccount: default
+  serviceAccountName: default
+  restartPolicy: Never

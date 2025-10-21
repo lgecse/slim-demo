@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: guesser-bob
+  labels:
+    app: guessing-game
+    role: guesser
+spec:
+  containers:
+  - name: guesser
+    image: slim-guessing-game:latest
+    imagePullPolicy: Never  # For local development
+    envFrom:
+      - secretRef:
+          name: game-env
+    command: ["guessing-game", "guesser"]
+    args:
+      - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
+      - --shared-secret=secret123
+      - --game-channel=classroom/guessing-game
+      - --agent-name=Bob
+      - --strategy=systematic
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+  serviceAccount: default
+  serviceAccountName: default
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: guesser-carol
+  labels:
+    app: guessing-game
+    role: guesser
+spec:
+  containers:
+  - name: guesser
+    image: slim-guessing-game:latest
+    imagePullPolicy: Never  # For local development
+    envFrom:
+      - secretRef:
+          name: game-env
+    command: ["guessing-game", "guesser"]
+    args:
+      - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
+      - --shared-secret=secret123
+      - --game-channel=classroom/guessing-game
+      - --agent-name=Carol
+      - --strategy=creative
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+  serviceAccount: default
+  serviceAccountName: default
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: guesser-dave
+  labels:
+    app: guessing-game
+    role: guesser
+spec:
+  containers:
+  - name: guesser
+    image: slim-guessing-game:latest
+    imagePullPolicy: Never  # For local development
+    envFrom:
+      - secretRef:
+          name: game-env
+    command: ["guessing-game", "guesser"]
+    args:
+      - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
+      - --shared-secret=secret123
+      - --game-channel=classroom/guessing-game
+      - --agent-name=Dave
+      - --strategy=random
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+  serviceAccount: default
+  serviceAccountName: default
+  restartPolicy: Never

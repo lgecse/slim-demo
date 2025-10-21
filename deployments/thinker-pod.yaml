@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: thinker-alice
+  labels:
+    app: guessing-game
+    role: thinker
+spec:
+  containers:
+  - name: thinker
+    image: slim-guessing-game:latest
+    imagePullPolicy: Never  # For local development
+    envFrom:
+      - secretRef:
+          name: game-env
+    command: ["guessing-game", "thinker"]
+    args:
+      - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
+      - --shared-secret=secret123
+      - --game-channel=classroom/guessing-game
+      - --agent-name=Alice
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+  serviceAccount: default
+  serviceAccountName: default
+  restartPolicy: Never

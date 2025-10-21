@@ -1,0 +1,157 @@
+version: "3"
+
+vars:
+  GAME_IMAGE: "slim-guessing-game:latest"
+  SLIM_IMAGE_TAG: "latest"
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  ####################
+  # Infrastructure
+  ####################
+
+  cluster:up:
+    desc: Create Kind Kubernetes cluster with persistent storage
+    cmds:
+      - |
+        # Expand HOME variable in config
+        export HOME_DIR="${HOME}"
+        envsubst < slim-cluster-config.yaml > /tmp/slim-cluster-config.yaml
+        if ! kind get clusters | grep -q slim-cluster; then
+          kind create cluster --config /tmp/slim-cluster-config.yaml
+        fi
+      - kubectl config use-context kind-slim-cluster
+
+  cluster:down:
+    desc: Delete Kind Kubernetes cluster
+    cmds:
+      - kind delete cluster --name slim-cluster
+
+  slim:add-repo:
+    desc: Add SLIM Helm repository (OCI registry)
+    cmds:
+      - echo "Using OCI registry - no repo add needed"
+
+  slim:deploy:
+    desc: Deploy SLIM platform from OCI Helm chart
+    cmds:
+      - |
+        helm upgrade slim oci://ghcr.io/agntcy/slim/helm/slim \
+          --version v0.6.0 \
+          --namespace slim \
+          --create-namespace \
+          --install \
+          --set slim.image.tag="{{.SLIM_IMAGE_TAG}}" \
+          --values slim-values.yaml \
+          --wait
+    
+  slim:status:
+    desc: Check SLIM deployment status
+    cmds:
+      - kubectl get pods -n slim
+      - kubectl get svc -n slim
+  
+  slim:logs:
+    desc: Show SLIM logs
+    cmds:
+      - kubectl logs -n slim -l app.kubernetes.io/name=slim --tail=50 -f
+
+
+  ####################
+  # Build
+  ####################
+
+  build:
+    desc: Build the guessing game Docker image
+    cmds:
+      - docker build -t {{.GAME_IMAGE}} .
+    sources:
+      - src/**/*.py
+      - pyproject.toml
+      - Dockerfile
+
+  game:build-and-load:
+    desc: Build and load game image into Kind cluster
+    deps: [build]
+    cmds:
+      - kind load docker-image {{.GAME_IMAGE}} --name slim-cluster
+
+  ####################
+  # Game Management
+  ####################
+
+  game:deploy:
+    desc: Deploy all game agents
+    deps: [game:build-and-load, env:deploy]
+    cmds:
+      - kubectl apply -f deployments/thinker-pod.yaml
+      - kubectl apply -f deployments/guesser-pods.yaml
+      - kubectl apply -f deployments/translator-pod.yaml
+      - kubectl apply -f deployments/coordinator-pod.yaml
+      - kubectl wait --for=condition=Ready pod/game-coordinator --timeout=60s
+      - kubectl wait --for=condition=Ready pod/thinker-alice --timeout=60s
+      - kubectl wait --for=condition=Ready pod/guesser-bob --timeout=60s
+      - kubectl wait --for=condition=Ready pod/guesser-carol --timeout=60s
+      - kubectl wait --for=condition=Ready pod/guesser-dave --timeout=60s
+      - kubectl wait --for=condition=Ready pod/translator-travis --timeout=60s
+
+  game:status:
+    desc: Check game components status
+    cmds:
+      - kubectl get pods game-coordinator thinker-alice guesser-bob guesser-carol guesser-dave translator-travis
+
+  game:start:
+    desc: Start the game
+    deps: [game:deploy]
+
+  game:logs:
+    desc: Follow game coordinator logs
+    cmds:
+      - kubectl logs game-coordinator -f
+
+  game:restart:
+    desc: Restart game agents
+    cmds:
+      - kubectl delete pod game-coordinator thinker-alice guesser-bob guesser-carol guesser-dave translator-travis --ignore-not-found=true
+      - sleep 5
+      - task game:deploy
+
+  game:stop:
+    desc: Stop game agents
+    cmds:
+      - kubectl delete pod game-coordinator thinker-alice guesser-bob guesser-carol guesser-dave translator-travis --ignore-not-found=true
+
+  ####################
+  # Setup & Cleanup
+  ####################
+
+  setup:
+    desc: Complete setup - creates cluster, deploys SLIM, and starts game
+    cmds:
+      - task cluster:up
+      - task slim:deploy
+      - task env:deploy
+      - task game:deploy
+      - task game:logs
+      
+  env:deploy:
+    desc: Deploy environment configuration from .env file
+    cmds:
+      - |
+        if [ ! -f deployments/.env ]; then
+          echo "Error: deployments/.env file not found!"
+          echo "Please copy deployments/.env.example to deployments/.env and fill in your values"
+          exit 1
+        fi
+        ./scripts/create-secret.sh
+      
+  teardown:
+    desc: Complete cleanup - stops game and deletes cluster
+    cmds:
+      - task game:stop
+      - task cluster:down
+      - echo " Cleanup complete!"

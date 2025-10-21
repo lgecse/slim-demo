@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slim-guessing-game"
+version = "1.0.0"
+description = "An educational guessing game for children using SLIM messaging"
+authors = [
+    {name = "SLIM Guessing Game Contributors"},
+]
+requires-python = ">=3.9"
+dependencies = [
+    "slim-bindings>=0.6.0",
+    "click>=8.0.0",
+    "asyncio-mqtt>=0.11.0",
+    "openai>=1.0.0",
+]
+
+[project.scripts]
+guessing-game = "guessing_game.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"

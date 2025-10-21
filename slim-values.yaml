@@ -1,0 +1,50 @@
+# SLIM deployment configuration for guessing game
+# Based on the "naive" deployment strategy
+slim:
+  # Deploy as a single replica (simple setup)
+  daemonset: false
+  replicaCount: 1
+
+  # SLIM container image from public registry
+  image:
+    repository: ghcr.io/agntcy/slim
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # SLIM configuration
+  config:
+    tracing:
+      log_level: debug
+      display_thread_names: true
+      display_thread_ids: true
+
+    runtime:
+      n_cores: 0
+      thread_name: "slim-data-plane"
+      drain_timeout: 10s
+
+    services:
+      slim/0:
+        nodeId: ${env:SLIM_SVC_ID}
+        dataplane:
+          servers:
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+              tls:
+                insecure: true
+
+          clients: []
+        controller:
+          servers:
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.control.port }}"
+              tls:
+                insecure: true
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    headless: false
+    data:
+      port: 46357
+    control:
+      port: 46358
+
