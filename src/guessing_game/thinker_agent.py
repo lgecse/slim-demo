@@ -58,7 +58,7 @@ class ThinkerAgent:
         await self.session.publish(json.dumps(message).encode())
         
     async def choose_new_object(self):
-        """Use local LLM to choose a new object to think about."""
+        """Use LLM to choose a new object to think about."""
         object_name = await self.llm_agent.choose_object()
         self.current_object = {"name": object_name}
         print(f"I'm thinking of: {object_name}")
@@ -90,7 +90,7 @@ class ThinkerAgent:
         print(f"Sent secret object '{object_name}' to Travis (observer) via secure 1:1 session")
         
     async def answer_question(self, question: str) -> str:
-        """Use local LLM to intelligently answer yes/no questions about the current object."""
+        """Use LLM to intelligently answer yes/no questions about the current object."""
         if not self.current_object:
             return "I haven't chosen an object yet!"
         
@@ -98,7 +98,7 @@ class ThinkerAgent:
     
         
     async def check_guess(self, guess: str) -> bool:
-        """Use local LLM to intelligently check if a guess matches the current object."""
+        """Use LLM to intelligently check if a guess matches the current object."""
         if not self.current_object:
             return False
         

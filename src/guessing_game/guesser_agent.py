@@ -89,7 +89,7 @@ class GuesserAgent:
                 # Update LLM agent with game history
                 self.llm_agent.update_game_history(game_log)
                 
-                # Use local LLM to decide whether to ask a question or make a guess
+                # Use LLM to decide whether to ask a question or make a guess
                 should_guess = await self.llm_agent.should_make_guess() or questions_remaining <= 2
                 
                 if should_guess:
@@ -158,18 +158,18 @@ class GuesserAgent:
             print("Guesser agent exiting after game completion.")
                 
     async def ask_question(self, game_log: List[Dict] = None):
-        """Use local LLM to ask an intelligent question about the object."""
+        """Use LLM to ask an intelligent question about the object."""
         question = await self.llm_agent.ask_question()
-        print(f"I'm asking (Local LLM): '{question}'")
+        print(f"I'm asking: '{question}'")
         
         await self.send_message('question', {
             'question': question
         })
         
     async def make_guess(self, game_log: List[Dict] = None):
-        """Use local LLM to make an educated guess about the object."""
+        """Use LLM to make an educated guess about the object."""
         guess = await self.llm_agent.make_guess()
-        print(f"I'm guessing (Local LLM): '{guess}'")
+        print(f"I'm guessing: '{guess}'")
         
         await self.send_message('guess', {
             'guess': guess

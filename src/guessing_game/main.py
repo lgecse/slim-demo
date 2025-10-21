@@ -17,13 +17,13 @@ from .translator_agent import translator_main
 def cli():
     """ SLIM Guessing Game - Educational AI Agent Game for Children! 
     
-    A fun game where LOCAL AI agents play "20 Questions" together using secure messaging.
-    Powered by local LLM intelligence - no internet required!
+    A fun game where LLM-powered AI agents play "20 Questions" together using secure messaging.
+    Powered by LLM intelligence - no internet required!
     
     Roles:
     - coordinator: Manages the game flow and rules
-    - thinker: Uses local LLM to think of objects and answer questions intelligently
-    - guesser: Uses local LLM to ask strategic questions and make educated guesses
+    - thinker: Uses LLM to think of objects and answer questions intelligently
+    - guesser: Uses LLM to ask strategic questions and make educated guesses
     """
     pass
 
@@ -47,7 +47,7 @@ def coordinator(slim, shared_secret, game_channel, max_questions, max_guesses):
 @click.option('--game-channel', default='classroom/guessing-game', help='Game channel name')
 @click.option('--agent-name', required=True, help='Name of this thinker agent (e.g., Alice)')
 def thinker(slim, shared_secret, game_channel, agent_name):
-    """ Run a thinker agent - thinks of objects and answers questions using local LLM."""
+    """ Run a thinker agent - thinks of objects and answers questions using LLM."""
     thinker_main(slim, shared_secret, game_channel, agent_name)
 
 
@@ -60,7 +60,7 @@ def thinker(slim, shared_secret, game_channel, agent_name):
 @click.option('--strategy', default='random', type=click.Choice(['random', 'systematic', 'creative']),
               help='LLM personality strategy to use')
 def guesser(slim, shared_secret, game_channel, agent_name, strategy):
-    """ Run a guesser agent - asks questions and tries to guess objects using local LLM."""
+    """ Run a guesser agent - asks questions and tries to guess objects using LLM."""
     guesser_main(slim, shared_secret, game_channel, agent_name, strategy)
 
 
