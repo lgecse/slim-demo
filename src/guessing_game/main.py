@@ -32,7 +32,7 @@ def cli():
 @click.option('--slim', default='{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}', 
               help='SLIM connection configuration as JSON')
 @click.option('--shared-secret', default='secret123', help='Shared secret for authentication')
-@click.option('--game-channel', default='classroom/guessing-game', help='Game channel name')
+@click.option('--game-channel', default='school/classroom/guessing-game', help='Game channel name')
 @click.option('--max-questions', default=20, help='Maximum questions allowed')
 @click.option('--max-guesses', default=3, help='Maximum final guesses allowed')
 def coordinator(slim, shared_secret, game_channel, max_questions, max_guesses):
@@ -44,7 +44,7 @@ def coordinator(slim, shared_secret, game_channel, max_questions, max_guesses):
 @click.option('--slim', default='{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}',
               help='SLIM connection configuration as JSON')
 @click.option('--shared-secret', default='secret123', help='Shared secret for authentication')
-@click.option('--game-channel', default='classroom/guessing-game', help='Game channel name')
+@click.option('--game-channel', default='school/classroom/guessing-game', help='Game channel name')
 @click.option('--agent-name', required=True, help='Name of this thinker agent (e.g., Alice)')
 def thinker(slim, shared_secret, game_channel, agent_name):
     """ Run a thinker agent - thinks of objects and answers questions using LLM."""
@@ -55,7 +55,7 @@ def thinker(slim, shared_secret, game_channel, agent_name):
 @click.option('--slim', default='{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}',
               help='SLIM connection configuration as JSON')
 @click.option('--shared-secret', default='secret123', help='Shared secret for authentication') 
-@click.option('--game-channel', default='classroom/guessing-game', help='Game channel name')
+@click.option('--game-channel', default='school/classroom/guessing-game', help='Game channel name')
 @click.option('--agent-name', required=True, help='Name of this guesser agent (e.g., Bob, Carol, Dave)')
 @click.option('--strategy', default='random', type=click.Choice(['random', 'systematic', 'creative']),
               help='LLM personality strategy to use')
@@ -68,7 +68,7 @@ def guesser(slim, shared_secret, game_channel, agent_name, strategy):
 @click.option('--slim', default='{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}',
               help='SLIM connection configuration as JSON')
 @click.option('--shared-secret', default='secret123', help='Shared secret for authentication')
-@click.option('--game-channel', default='classroom/guessing-game', help='Game channel name')
+@click.option('--game-channel', default='school/classroom/guessing-game', help='Game channel name')
 @click.option('--agent-name', default='Travis', help='Name of this translator agent')
 @click.option('--target-language', default='Hungarian', help='Target language for translation (e.g., Spanish, French, German)')
 def translator(slim, shared_secret, game_channel, agent_name, target_language):

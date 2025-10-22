@@ -38,7 +38,7 @@ class TranslatorAgent:
         )
         
         # Create local identity
-        local_name = slim_bindings.PyName("classroom", f"translator-{self.agent_name}")
+        local_name = slim_bindings.PyName("school", "classroom", f"translator-{self.agent_name}")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
         # Connect to SLIM service

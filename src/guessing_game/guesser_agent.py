@@ -35,7 +35,7 @@ class GuesserAgent:
             shared_secret=shared_secret
         )
         
-        local_name = slim_bindings.PyName("classroom", f"guesser-{self.agent_name}")
+        local_name = slim_bindings.PyName("school", "classroom", f"guesser-{self.agent_name}")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
         await self.slim_app.connect(slim_config)

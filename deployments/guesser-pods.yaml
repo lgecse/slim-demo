@@ -17,7 +17,7 @@ spec:
     args:
       - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
       - --shared-secret=secret123
-      - --game-channel=classroom/guessing-game
+      - --game-channel=school/classroom/guessing-game
       - --agent-name=Bob
       - --strategy=systematic
     env:
@@ -46,7 +46,7 @@ spec:
     args:
       - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
       - --shared-secret=secret123
-      - --game-channel=classroom/guessing-game
+      - --game-channel=school/classroom/guessing-game
       - --agent-name=Carol
       - --strategy=creative
     env:
@@ -75,7 +75,7 @@ spec:
     args:
       - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
       - --shared-secret=secret123
-      - --game-channel=classroom/guessing-game
+      - --game-channel=school/classroom/guessing-game
       - --agent-name=Dave
       - --strategy=random
     env:
