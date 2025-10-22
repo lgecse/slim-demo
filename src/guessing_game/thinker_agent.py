@@ -8,8 +8,12 @@ answer questions about their properties.
 import asyncio
 import json
 import datetime
+import logging
 import slim_bindings  # type: ignore
 from .llm_agent import LLMThinkerAgent
+from .logging_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class ThinkerAgent:
@@ -37,19 +41,20 @@ class ThinkerAgent:
             shared_secret=shared_secret
         )
         
+        await slim_bindings.init_tracing({"log_level": "info"})
         local_name = slim_bindings.PyName("school", "classroom", f"thinker-{self.agent_name}")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
         await self.slim_app.connect(slim_config)
-        print(f"Thinker Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
+        logger.info(f"Thinker Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
         
         # Join game session
-        print("Looking for game session...")
+        logger.debug("Looking for game session...")
         self.session = await self.slim_app.listen_for_session()
-        print(f"Joined game session!")
+        logger.info(f"Joined game session!")
         
         # Create PointToPoint session with Travis (optional - game can run without him)
-        print("Creating secret PointToPoint session with Travis...")
+        logger.debug("Creating secret PointToPoint session with Travis...")
         
         try:
             travis_name = slim_bindings.PyName("school", "classroom", "translator-Travis")
@@ -63,10 +68,10 @@ class ThinkerAgent:
                     mls_enabled=True
                 )
             )
-            print(f"✓ Created secret PointToPoint session with Travis!")
+            logger.info(f"✓ Created secret PointToPoint session with Travis!")
         except Exception as e:
-            print(f"Note: Could not establish secret session with Travis (optional observer): {e}")
-            print("Continuing game without Travis...")
+            logger.warning(f"Note: Could not establish secret session with Travis (optional observer): {e}")
+            logger.info("Continuing game without Travis...")
         
     async def send_message(self, msg_type: str, data: dict):
         """Send a message to the game coordinator."""
@@ -81,26 +86,26 @@ class ThinkerAgent:
         """Use LLM to choose a new object to think about."""
         object_name = await self.llm_agent.choose_object()
         self.current_object = {"name": object_name}
-        print(f"I'm thinking of: {object_name}")
-        print(f"(Shh! Don't tell the guessers!)")
+        logger.info(f"I'm thinking of: {object_name}")
+        logger.info(f"(Shh! Don't tell the guessers!)")
         
         await self.send_secret_to_observer(object_name)
     
     async def send_secret_to_observer(self, object_name: str):
         """Send the secret object to Travis (observer) via secure 1:1 session."""
-        print(f"Attempting to send secret '{object_name}' to Travis...")
-        print(f"Secret session status: {self.secret_session is not None}")
+        logger.debug(f"Attempting to send secret '{object_name}' to Travis...")
+        logger.debug(f"Secret session status: {self.secret_session is not None}")
         
         max_wait = 200  # 20 seconds
         wait_count = 0
         while not self.secret_session and wait_count < max_wait:
             if wait_count % 10 == 0:  # Log every second
-                print(f"Waiting for secret session... ({wait_count/10:.0f}s)")
+                logger.debug(f"Waiting for secret session... ({wait_count/10:.0f}s)")
             await asyncio.sleep(0.1)
             wait_count += 1
         
         if not self.secret_session:
-            print(f"WARNING: Secret session not established after {max_wait/10}s, cannot send secret securely!")
+            logger.warning(f"WARNING: Secret session not established after {max_wait/10}s, cannot send secret securely!")
             return
         
         message = {
@@ -110,7 +115,7 @@ class ThinkerAgent:
         }
         
         await self.secret_session.publish(json.dumps(message).encode())
-        print(f"✓ Sent secret object '{object_name}' to Travis (observer) via secure 1:1 session")
+        logger.info(f"✓ Sent secret object '{object_name}' to Travis (observer) via secure 1:1 session")
         
     async def answer_question(self, question: str) -> str:
         """Use LLM to intelligently answer yes/no questions about the current object."""
@@ -136,8 +141,8 @@ class ThinkerAgent:
             rules = data.get('rules', {})
             target_audience = rules.get('target_audience', 'children')
             language_rule = rules.get('language', 'Game will be in English')
-            print(f"Received game invitation for {target_audience} - choosing child-friendly object...")
-            print(f"{language_rule}")
+            logger.info(f"Received game invitation for {target_audience} - choosing child-friendly object...")
+            logger.debug(f"{language_rule}")
             await self.choose_new_object()
             await self.send_game_ready()
             
@@ -145,9 +150,9 @@ class ThinkerAgent:
             question = data.get('question', '')
             guesser = data.get('guesser', '')
             
-            print(f"Question from {guesser}: '{question}'")
+            logger.info(f"Question from {guesser}: '{question}'")
             answer = await self.answer_question(question)
-            print(f"My answer: '{answer}'")
+            logger.info(f"My answer: '{answer}'")
             
             await self.send_message('answer', {
                 'question': question,
@@ -159,13 +164,13 @@ class ThinkerAgent:
             guess = data.get('guess', '')
             guesser = data.get('guesser', '')
             
-            print(f"Guess from {guesser}: '{guess}'")
+            logger.info(f"Guess from {guesser}: '{guess}'")
             correct = await self.check_guess(guess)
             
             if correct:
-                print(f"Correct! The object was '{self.current_object['name']}'")
+                logger.info(f"Correct! The object was '{self.current_object['name']}'")
             else:
-                print(f"Wrong! It's not '{guess}', it's '{self.current_object['name']}'")
+                logger.info(f"Wrong! It's not '{guess}', it's '{self.current_object['name']}'")
             
             # Don't include actual_object to prevent leaking the secret on the public channel
             result_data = {
@@ -179,12 +184,12 @@ class ThinkerAgent:
         elif msg_type == 'game_over':
             winner = data.get('winner')
             if winner:
-                print(f"Game over! {winner} won by guessing '{self.current_object['name']}'!")
+                logger.info(f"Game over! {winner} won by guessing '{self.current_object['name']}'!")
             else:
-                print(f"Game over! No one guessed '{self.current_object['name']}'.")
+                logger.info(f"Game over! No one guessed '{self.current_object['name']}'.")
             
             self.running = False
-            print("Thinker agent exiting after game completion.")
+            logger.info("Thinker agent exiting after game completion.")
             
     async def send_ready(self):
         """Tell the coordinator that this agent is connected and ready."""
@@ -200,11 +205,11 @@ class ThinkerAgent:
             'name': self.agent_name,
             'object_chosen': True
         })
-        print("Thinker ready with object - game can begin!")
+        logger.info("Thinker ready with object - game can begin!")
         
     async def run(self):
         """Main agent loop - listens on public game session."""
-        print(f"Thinker Agent '{self.agent_name}' is connected and waiting for game start...")
+        logger.info(f"Thinker Agent '{self.agent_name}' is connected and waiting for game start...")
         
         await self.send_ready()
         
@@ -218,14 +223,14 @@ class ThinkerAgent:
                     continue
                 except Exception as e:
                     if self.running:
-                        print(f"Error in public session: {e}")
+                        logger.error(f"Error in public session: {e}")
                         await asyncio.sleep(1)
                     else:
                         break
         except Exception as e:
-            print(f"Error in main loop: {e}")
+            logger.error(f"Error in main loop: {e}")
         
-        print(f"Thinker '{self.agent_name}' has exited cleanly.")
+        logger.info(f"Thinker '{self.agent_name}' has exited cleanly.")
 
 
 def thinker_main(slim_config_json: str, shared_secret: str, game_channel: str, 
@@ -244,4 +249,4 @@ def thinker_main(slim_config_json: str, shared_secret: str, game_channel: str,
     try:
         asyncio.run(run_thinker())
     except KeyboardInterrupt:
-        print(f"Thinker Agent '{agent_name}' stopped by user.")
+        logger.info(f"Thinker Agent '{agent_name}' stopped by user.")

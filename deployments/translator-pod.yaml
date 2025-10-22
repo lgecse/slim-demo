@@ -16,7 +16,7 @@ spec:
     envFrom:
       - secretRef:
           name: game-env
-    command: ["guessing-game", "translator"]
+    command: ["guessing-game", "--log-level", "DEBUG", "translator"]
     args:
       - "--agent-name=Travis"
       - "--target-language=Hungarian"

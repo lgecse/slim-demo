@@ -4,8 +4,12 @@ LLM-powered agent base class for intelligent question answering and reasoning.
 
 import json
 import os
+import logging
 from typing import Dict, List, Optional
 import openai  # type: ignore
+from .logging_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class LLMAgent:
@@ -22,8 +26,8 @@ class LLMAgent:
         llm_api_key = os.getenv("LLM_API_KEY")
         
         if not self.model or not llm_url or not llm_api_key:
-            print("LLM configuration incomplete in environment!")
-            print("Required: LLM_MODEL, LLM_URL, and LLM_API_KEY")
+            logger.error("LLM configuration incomplete in environment!")
+            logger.error("Required: LLM_MODEL, LLM_URL, and LLM_API_KEY")
             raise ValueError("Missing required LLM environment variables")
             
         self.client = openai.AsyncOpenAI(
@@ -31,8 +35,8 @@ class LLMAgent:
             api_key=llm_api_key
         )
         
-        print(f"Using LLM: {self.model}")
-        print(f"Endpoint: {llm_url}")
+        logger.info(f"Using LLM: {self.model}")
+        logger.debug(f"Endpoint: {llm_url}")
     
     async def ask_llm(self, messages: List[Dict[str, str]], max_tokens: int = 150) -> str:
         """Send a request to the LLM and get a response."""
@@ -48,7 +52,7 @@ class LLMAgent:
             return response.choices[0].message.content.strip()
         except Exception as e:
             mode_desc = "LLM"
-            print(f"{mode_desc} error: {e}")
+            logger.error(f"{mode_desc} error: {e}")
             return "I'm having trouble thinking right now."
     
 

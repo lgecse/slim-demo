@@ -5,9 +5,13 @@ Translator observer agent that listens to all game messages and translates them 
 import asyncio
 import json
 import datetime
+import logging
 from typing import Optional
 import slim_bindings  # type: ignore
 from .llm_agent import LLMAgent
+from .logging_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class TranslatorAgent:
@@ -37,28 +41,29 @@ class TranslatorAgent:
             shared_secret=shared_secret
         )
         
+        await slim_bindings.init_tracing({"log_level": "info"})
         # Create local identity
         local_name = slim_bindings.PyName("school", "classroom", f"translator-{self.agent_name}")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
         # Connect to SLIM service
-        print(f"Connecting to SLIM at {slim_config.get('endpoint')}...")
+        logger.debug(f"Connecting to SLIM at {slim_config.get('endpoint')}...")
         await self.slim_app.connect(slim_config)
-        print(f"Translator Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
-        print(f"Target Language: {self.target_language}")
-        print(f"Full identity: {local_name}")
+        logger.info(f"Translator Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
+        logger.info(f"Target Language: {self.target_language}")
+        logger.debug(f"Full identity: {local_name}")
         
         # Wait for game session invitation
-        print("Calling listen_for_session()... This will block until invitation received.")
+        logger.debug("Calling listen_for_session()... This will block until invitation received.")
         self.session = await self.slim_app.listen_for_session()
-        print(f"Session invitation received! Joined game session!")
-        print(f"Session ID: {self.session}")
-        print(f"Now observing and translating messages to {self.target_language}...")
+        logger.info(f"Session invitation received! Joined game session!")
+        logger.debug(f"Session ID: {self.session}")
+        logger.info(f"Now observing and translating messages to {self.target_language}...")
         
         # Wait for Alice to create secret PointToPoint session (Travis is receiver)
-        print("Waiting for Alice to create secret PointToPoint session...")
+        logger.debug("Waiting for Alice to create secret PointToPoint session...")
         self.secret_session = await self.slim_app.listen_for_session()
-        print(f"Received secret PointToPoint session from Alice!")
+        logger.info(f"Received secret PointToPoint session from Alice!")
     
     async def translate_text(self, english_text: str) -> str:
         """Use LLM to translate English text to the target language."""
@@ -77,7 +82,7 @@ class TranslatorAgent:
             translation = await self.llm_agent.ask_llm(messages, max_tokens=200)
             return translation
         except Exception as e:
-            print(f"Translation error: {e}")
+            logger.error(f"Translation error: {e}")
             return f"[Translation error: {english_text}]"
     
     def extract_text_from_message(self, message: dict) -> Optional[str]:
@@ -120,11 +125,11 @@ class TranslatorAgent:
         
         if english_text:
             translated_text = await self.translate_text(english_text)
-            print(f"[{self.target_language}] {translated_text}")
+            logger.info(f"[{self.target_language}] {translated_text}")
         
         if msg_type == 'game_over':
             self.running = False
-            print("Translator agent exiting after game completion.")
+            logger.info("Translator agent exiting after game completion.")
     
     async def run(self):
         """Main loop - listen for messages on both public and secret sessions."""
@@ -145,10 +150,10 @@ class TranslatorAgent:
                         continue
                     
             except asyncio.CancelledError:
-                print(f"Translator Agent '{self.agent_name}' is shutting down...")
+                logger.info(f"Translator Agent '{self.agent_name}' is shutting down...")
             except Exception as e:
                 if self.running:
-                    print(f"Translator error: {e}")
+                    logger.error(f"Translator error: {e}")
         
         async def listen_secret_session():
             """Listen for secret messages from Alice."""
@@ -167,8 +172,8 @@ class TranslatorAgent:
                         
                         if msg_type == 'secret_object':
                             self.secret_object = message.get('data', {}).get('object')
-                            print(f"[OBSERVER SECRET] Received secret from Alice: '{self.secret_object}'")
-                            print(f"[OBSERVER SECRET] This was transmitted via secure 1:1 session - only Travis knows!")
+                            logger.info(f"[OBSERVER SECRET] Received secret from Alice: '{self.secret_object}'")
+                            logger.info(f"[OBSERVER SECRET] This was transmitted via secure 1:1 session - only Travis knows!")
                     except asyncio.TimeoutError:
                         continue
                     
@@ -176,7 +181,7 @@ class TranslatorAgent:
                 pass
             except Exception as e:
                 if self.running:
-                    print(f"Error in secret session: {e}")
+                    logger.error(f"Error in secret session: {e}")
         
         try:
             await asyncio.gather(
@@ -184,9 +189,9 @@ class TranslatorAgent:
                 listen_secret_session()
             )
         except Exception as e:
-            print(f"Error in main loop: {e}")
+            logger.error(f"Error in main loop: {e}")
         finally:
-            print(f"Translator '{self.agent_name}' has exited cleanly.")
+            logger.info(f"Translator '{self.agent_name}' has exited cleanly.")
     
     async def start(self, slim_config: dict, shared_secret: str):
         """Start the translator agent."""
@@ -197,24 +202,24 @@ class TranslatorAgent:
 def translator_main(slim_config_json: str, shared_secret: str, game_channel: str, agent_name: str, target_language: str):
     """Main entry point for the translator agent."""
     
-    print(f"Starting Translator Agent '{agent_name}' for {target_language}...")
+    logger.info(f"Starting Translator Agent '{agent_name}' for {target_language}...")
     
     async def run_translator():
-        print(f"Initializing translator agent...")
+        logger.debug(f"Initializing translator agent...")
         try:
             agent = TranslatorAgent(agent_name, target_language)
-            print(f"Translator agent initialized for {target_language}")
+            logger.info(f"Translator agent initialized for {target_language}")
             
             # Parse SLIM config
             slim_config = json.loads(slim_config_json)
-            print(f"Parsed SLIM config")
+            logger.debug(f"Parsed SLIM config")
             
             await agent.connect_to_slim(slim_config, shared_secret)
-            print(f"Connected to SLIM")
+            logger.info(f"Connected to SLIM")
             
             await agent.run()
         except Exception as e:
-            print(f"Fatal error in translator: {e}")
+            logger.error(f"Fatal error in translator: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -222,7 +227,7 @@ def translator_main(slim_config_json: str, shared_secret: str, game_channel: str
     try:
         asyncio.run(run_translator())
     except KeyboardInterrupt:
-        print(f"Translator Agent '{agent_name}' stopped by user.")
+        logger.info(f"Translator Agent '{agent_name}' stopped by user.")
     except Exception as e:
-        print(f"Translator agent failed: {e}")
+        logger.error(f"Translator agent failed: {e}")
 

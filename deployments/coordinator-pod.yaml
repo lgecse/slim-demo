@@ -13,7 +13,7 @@ spec:
     envFrom:
       - secretRef:
           name: game-env
-    command: ["guessing-game", "coordinator"]
+    command: ["guessing-game", "--log-level", "DEBUG", "coordinator"]
     args:
       - --slim={"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}
       - --shared-secret=secret123

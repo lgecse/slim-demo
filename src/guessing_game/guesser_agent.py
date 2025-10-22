@@ -11,6 +11,9 @@ import datetime
 from typing import List, Dict
 import slim_bindings  # type: ignore
 from .llm_agent import LLMGuesserAgent
+from .logging_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class GuesserAgent:
@@ -35,15 +38,16 @@ class GuesserAgent:
             shared_secret=shared_secret
         )
         
+        await slim_bindings.init_tracing({"log_level": "info"})
         local_name = slim_bindings.PyName("school", "classroom", f"guesser-{self.agent_name}")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
         await self.slim_app.connect(slim_config)
-        print(f"Guesser Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
+        logger.info(f"Guesser Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
         
-        print("Looking for game session...")
+        logger.debug("Looking for game session...")
         self.session = await self.slim_app.listen_for_session()
-        print(f"Joined game session!")
+        logger.info(f"Joined game session!")
         
     async def send_message(self, msg_type: str, data: dict):
         """Send a message to the game coordinator."""
@@ -64,29 +68,38 @@ class GuesserAgent:
             target_audience = rules.get('target_audience', 'children')
             requirement = rules.get('requirement', 'Objects familiar to children')
             language_rule = rules.get('language', 'Game will be in English')
-            print(f"Received game invitation for {target_audience}!")
-            print(f"{requirement}")
-            print(f"{language_rule}")
+            logger.info(f"Received game invitation for {target_audience}!")
+            logger.debug(f"{requirement}")
+            logger.debug(f"{language_rule}")
             await self.send_game_ready()
         
         if msg_type == 'game_start':
-            print("Game is starting!")
+            logger.info("Game is starting!")
             await self.send_ready()
             
         elif msg_type == 'your_turn':
             current_guesser = data.get('guesser')
             my_name = f"guesser-{self.agent_name}"
+            questions_remaining = data.get('questions_remaining', 0)
+            
+            logger.debug(f"Received 'your_turn' message")
+            logger.debug(f"  Current guesser in message: {current_guesser}")
+            logger.debug(f"  My name: {my_name}")
+            logger.debug(f"  Questions remaining: {questions_remaining}")
+            logger.debug(f"  Match: {current_guesser == my_name}")
             
             if current_guesser == my_name:
+                logger.debug(f"It's MY turn! Processing...")
                 self.my_turn = True
                 game_log = data.get('game_log', [])
-                questions_remaining = data.get('questions_remaining', 0)
                 
-                print(f"It's my turn! ({questions_remaining} questions remaining)")
+                logger.info(f"It's my turn! ({questions_remaining} questions remaining)")
                 
                 self.llm_agent.update_game_history(game_log)
                 
                 should_guess = await self.llm_agent.should_make_guess() or questions_remaining <= 2
+                
+                logger.debug(f"Decision: {'GUESS' if should_guess else 'ASK QUESTION'}")
                 
                 if should_guess:
                     await self.make_guess(game_log)
@@ -94,6 +107,9 @@ class GuesserAgent:
                     await self.ask_question(game_log)
                     
                 self.my_turn = False
+                logger.debug(f"Turn complete")
+            else:
+                logger.debug(f"Not my turn, ignoring")
             
         elif msg_type == 'answer_from_thinker':
             guesser = data.get('guesser')
@@ -102,9 +118,9 @@ class GuesserAgent:
             turn_number = data.get('turn_number')
             
             if guesser == f"guesser-{self.agent_name}":
-                print(f"My question '{question}' was answered: '{answer}'")
+                logger.info(f"My question '{question}' was answered: '{answer}'")
             else:
-                print(f"{guesser} asked '{question}' and got '{answer}'")
+                logger.info(f"{guesser} asked '{question}' and got '{answer}'")
                 
         elif msg_type == 'guess_result':
             guesser = data.get('guesser')
@@ -123,14 +139,14 @@ class GuesserAgent:
             
             if guesser == f"guesser-{self.agent_name}":
                 if correct:
-                    print(f"YES! I guessed correctly! It was '{actual_object}'!")
+                    logger.info(f"YES! I guessed correctly! It was '{actual_object}'!")
                 else:
-                    print(f"No, my guess '{guess}' was wrong. It was '{actual_object}'.")
+                    logger.info(f"No, my guess '{guess}' was wrong. It was '{actual_object}'.")
             else:
                 if correct:
-                    print(f"{guesser} won! They guessed '{actual_object}' correctly!")
+                    logger.info(f"{guesser} won! They guessed '{actual_object}' correctly!")
                 else:
-                    print(f"{guesser} guessed '{guess}' but it was wrong.")
+                    logger.info(f"{guesser} guessed '{guess}' but it was wrong.")
                     
         elif msg_type == 'game_over':
             winner = data.get('winner')
@@ -138,34 +154,38 @@ class GuesserAgent:
             questions_asked = data.get('questions_asked')
             actual_object = data.get('actual_object', 'unknown')
             
-            print(f"Game Over! {result}")
-            print(f"The object was: {actual_object}")
-            print(f"Total questions asked: {questions_asked}")
+            logger.info(f"Game Over! {result}")
+            logger.info(f"The object was: {actual_object}")
+            logger.info(f"Total questions asked: {questions_asked}")
             
             if winner == f"guesser-{self.agent_name}":
-                print("I won this round!")
+                logger.info("I won this round!")
             elif winner:
-                print(f"{winner} won this round. Good job!")
+                logger.info(f"{winner} won this round. Good job!")
             else:
-                print("No one won this round.")
+                logger.info("No one won this round.")
             
             # Signal to exit after game over
             self.running = False
-            print("Guesser agent exiting after game completion.")
+            logger.info("Guesser agent exiting after game completion.")
                 
     async def ask_question(self, game_log: List[Dict] = None):
         """Use LLM to ask an intelligent question about the object."""
+        logger.debug(f"Calling LLM to generate question...")
         question = await self.llm_agent.ask_question()
-        print(f"I'm asking: '{question}'")
+        logger.debug(f"LLM generated question: '{question}'")
+        logger.info(f"I'm asking: '{question}'")
         
+        logger.debug(f"Sending 'question' message to coordinator...")
         await self.send_message('question', {
             'question': question
         })
+        logger.debug(f"Question sent")
         
     async def make_guess(self, game_log: List[Dict] = None):
         """Use LLM to make an educated guess about the object."""
         guess = await self.llm_agent.make_guess()
-        print(f"I'm guessing: '{guess}'")
+        logger.info(f"I'm guessing: '{guess}'")
         
         await self.send_message('guess', {
             'guess': guess
@@ -188,8 +208,8 @@ class GuesserAgent:
         
     async def run(self):
         """Main agent loop."""
-        print(f"Guesser Agent '{self.agent_name}' is ready!")
-        print(f"Using LLM-powered {self.strategy_name} strategy")
+        logger.info(f"Guesser Agent '{self.agent_name}' is ready!")
+        logger.info(f"Using LLM-powered {self.strategy_name} strategy")
         
         await self.send_ready()
         self.running = True
@@ -198,6 +218,7 @@ class GuesserAgent:
             try:
                 try:
                     ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
+                    logger.debug("Got message!!")
                     message = json.loads(payload.decode())
                     await self.handle_message(message)
                 except asyncio.TimeoutError:
@@ -205,12 +226,12 @@ class GuesserAgent:
                 
             except Exception as e:
                 if self.running:
-                    print(f"Error in agent loop: {e}")
+                    logger.error(f"Error in agent loop: {e}")
                     await asyncio.sleep(1)
                 else:
                     break
         
-        print(f"Guesser '{self.agent_name}' has exited cleanly.")
+        logger.info(f"Guesser '{self.agent_name}' has exited cleanly.")
 
 
 def guesser_main(slim_config_json: str, shared_secret: str, game_channel: str,
@@ -229,4 +250,4 @@ def guesser_main(slim_config_json: str, shared_secret: str, game_channel: str,
     try:
         asyncio.run(run_guesser())
     except KeyboardInterrupt:
-        print(f"Guesser Agent '{agent_name}' stopped by user.")
+        logger.info(f"Guesser Agent '{agent_name}' stopped by user.")

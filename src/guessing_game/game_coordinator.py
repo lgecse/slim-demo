@@ -9,7 +9,10 @@ import asyncio
 import json
 import datetime
 from typing import Dict, List, Optional
-import slim_bindings  # type: ignore
+import slim_bindings # type: ignore
+from .logging_config import setup_logger
+
+logger = setup_logger(__name__)  # type: ignore
 
 class GameState:
     """Tracks the current state of the guessing game."""
@@ -127,13 +130,14 @@ class GameCoordinator:
             shared_secret=shared_secret
         )
         
+        await slim_bindings.init_tracing({"log_level": "info"})
         # Create local identity
         local_name = slim_bindings.PyName("school", "classroom", "coordinator")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
         # Connect to SLIM service
         await self.slim_app.connect(slim_config)
-        print(f"Game Coordinator connected! ID: {self.slim_app.id_str}")
+        logger.info(f"Game Coordinator connected! ID: {self.slim_app.id_str}")
         
         # Create group session for the game
         channel = slim_bindings.PyName("school", "classroom", "guessing-game")
@@ -145,10 +149,10 @@ class GameCoordinator:
                 mls_enabled=True
             )
         )
-        print(f"Game channel created: {channel}")
+        logger.info(f"Game channel created: {channel}")
         
         # Wait for all agents to initialize and start listening (Translator needs extra time for LLM init)
-        print("Waiting 10 seconds for all agents to be ready to receive invitations...")
+        logger.debug("Waiting 10 seconds for all agents to be ready to receive invitations...")
         await asyncio.sleep(10)
         
         # Invite all expected agents to the game
@@ -169,9 +173,9 @@ class GameCoordinator:
                 agent_name = slim_bindings.PyName("school", "classroom", agent_id.split("/")[-1])
                 await self.slim_app.set_route(agent_name)
                 await self.session.invite(agent_name)
-                print(f"Invited {agent_id} to the game")
+                logger.info(f"Invited {agent_id} to the game")
             except Exception as e:
-                print(f"  Could not invite {agent_id}: {e}")
+                logger.warning(f"  Could not invite {agent_id}: {e}")
         
         # Invite optional observers
         for agent_id in optional_observers:
@@ -179,11 +183,13 @@ class GameCoordinator:
                 agent_name = slim_bindings.PyName("school", "classroom", agent_id.split("/")[-1])
                 await self.slim_app.set_route(agent_name)
                 await self.session.invite(agent_name)
-                print(f"Invited optional observer {agent_id}")
+                logger.info(f"Invited optional observer {agent_id}")
             except Exception as e:
-                print(f"  Could not invite optional observer {agent_id}: {e}")
+                logger.warning(f"  Could not invite optional observer {agent_id}: {e}")
         
-        print("All agents invited to the game session")
+        await asyncio.sleep(5)
+
+        logger.info("All agents invited to the game session")
         
     async def broadcast_message(self, msg_type: str, data: dict):
         """Send a message to all agents in the game."""
@@ -214,7 +220,7 @@ class GameCoordinator:
                 await self.handle_guess_result(source_name, message['data'])
                 
         except Exception as e:
-            print(f"Error processing message from {source_name}: {e}")
+            logger.error(f"Error processing message from {source_name}: {e}")
     
     async def send_invitations(self):
         """Send game invitations to all agents."""
@@ -235,17 +241,17 @@ class GameCoordinator:
         agent_name = data.get('name')
         
         if agent_role == 'thinker':
-            print(f"Thinker {agent_name} is ready with chosen object!")
+            logger.info(f"Thinker {agent_name} is ready with chosen object!")
             self.state.thinker_game_ready = True
         elif agent_role == 'guesser':
-            print(f"Guesser {agent_name} is ready to play!")
+            logger.info(f"Guesser {agent_name} is ready to play!")
             if agent_name not in self.state.guessers_game_ready:
                 self.state.guessers_game_ready.append(agent_name)
         
         # Start game if all agents are ready
         if (self.state.thinker_game_ready and 
             len(self.state.guessers_game_ready) >= 3):
-            print("All agents are ready - starting the game!")
+            logger.info("All agents are ready - starting the game!")
             self.state.game_active = True
             await self.next_turn()
             
@@ -257,18 +263,18 @@ class GameCoordinator:
         if role == 'thinker':
             self.state.thinker = f"thinker-{simple_name}"
             self.state.thinker_ready = True
-            print(f"Thinker ready: {simple_name}")
+            logger.info(f"Thinker ready: {simple_name}")
             
         elif role == 'guesser':
             guesser_name = f"guesser-{simple_name}"
             if guesser_name not in self.state.guessers:
                 self.state.guessers.append(guesser_name)
-                print(f"Guesser joined: {simple_name} (Total: {len(self.state.guessers)})")
+                logger.info(f"Guesser joined: {simple_name} (Total: {len(self.state.guessers)})")
                 
         # Send invitations if we have all players connected and haven't sent them yet
         if (self.state.thinker_ready and len(self.state.guessers) >= 3 and 
             not self.state.invitations_sent):
-            print("All agents connected - sending game invitations...")
+            logger.info("All agents connected - sending game invitations...")
             self.state.invitations_sent = True
             await self.send_invitations()
             
@@ -278,7 +284,7 @@ class GameCoordinator:
             return
             
         self.state.game_active = True
-        print("Starting the guessing game!")
+        logger.info("Starting the guessing game!")
         
         # Tell thinker to choose an object
         await self.broadcast_message('game_start', {
@@ -290,12 +296,19 @@ class GameCoordinator:
         
     async def next_turn(self):
         """Start the next guesser's turn."""
+        logger.debug(f"next_turn() called - game_active={self.state.game_active}, questions={self.state.questions_asked}/{self.state.max_questions}")
+        
         if self.state.is_game_over():
+            logger.debug("Game is over, calling end_game()")
             await self.end_game()
             return
             
         current_guesser = self.state.get_current_guesser()
         if current_guesser:
+            logger.debug(f"Sending 'your_turn' to {current_guesser}")
+            logger.debug(f"  Questions remaining: {self.state.max_questions - self.state.questions_asked}")
+            logger.debug(f"  Player guesses: {self.state.player_guesses}")
+            
             await self.broadcast_message('your_turn', {
                 'guesser': current_guesser,
                 'questions_remaining': self.state.max_questions - self.state.questions_asked,
@@ -303,21 +316,25 @@ class GameCoordinator:
                 'max_guesses_per_player': self.state.max_guesses_per_player,
                 'game_log': self.state.game_log[-5:]  # Last 5 entries for context
             })
+            
+            logger.debug(f"'your_turn' message broadcast complete")
             simple_name = self.get_simple_name(current_guesser)
-            print(f"{simple_name}'s turn (Question #{self.state.questions_asked + 1})")
+            logger.info(f"{simple_name}'s turn (Question #{self.state.questions_asked + 1})")
         else:
-            print(f"DEBUG: No current guesser! Current turn: {self.state.current_turn}, Guessers: {self.state.guessers}")
+            logger.warning(f"No current guesser! Current turn: {self.state.current_turn}, Guessers: {self.state.guessers}")
             
     async def handle_question(self, guesser: str, data: dict):
         """Forward question from guesser to thinker."""
         if not self.state.game_active:
+            logger.debug(f"Ignoring question from {guesser} - game not active")
             return
 
         current_guesser = self.state.get_current_guesser()
         
         question = data.get('question', '')
         simple_name = self.get_simple_name(guesser)
-        print(f"{simple_name}: {question}")
+        logger.debug(f"Received question from {guesser}: '{question}'")
+        logger.info(f"{simple_name}: {question}")
         
         await self.broadcast_message('question_for_thinker', {
             'guesser': guesser,
@@ -334,7 +351,7 @@ class GameCoordinator:
         guesser = data.get('guesser', '')
         
         simple_name = self.get_simple_name(thinker)
-        print(f"{simple_name}: {answer}")
+        logger.info(f"{simple_name}: {answer}")
         
         # Record the Q&A
         self.state.add_question(guesser, question, answer)
@@ -362,7 +379,7 @@ class GameCoordinator:
             
         guess = data.get('guess', '')
         simple_name = self.get_simple_name(guesser)
-        print(f"{simple_name}: {guess}")
+        logger.info(f"{simple_name}: {guess}")
         
         await self.broadcast_message('guess_for_thinker', {
             'guesser': guesser,
@@ -380,7 +397,7 @@ class GameCoordinator:
         
         simple_name = self.get_simple_name(guesser)
         result = " CORRECT!" if correct else " wrong"
-        print(f"{simple_name} guessed '{guess}' - {result}")
+        logger.info(f"{simple_name} guessed '{guess}' - {result}")
         
         self.state.add_guess(guesser, guess, correct)
         
@@ -398,7 +415,7 @@ class GameCoordinator:
         if correct or self.state.is_game_over():
             await self.end_game(winner=guesser if correct else None, actual_object=self.actual_object)
         else:
-            print(f"Game continues after wrong guess...")
+            logger.info(f"Game continues after wrong guess...")
             self.state.next_turn()
             await asyncio.sleep(1)
             await self.next_turn()
@@ -408,10 +425,10 @@ class GameCoordinator:
         self.state.game_active = False
         
         if winner:
-            print(f"Game Over! {winner} wins!")
+            logger.info(f"Game Over! {winner} wins!")
             result = f"{winner} correctly guessed the object!"
         else:
-            print("Game Over! No one guessed correctly.")
+            logger.info("Game Over! No one guessed correctly.")
             result = "Time's up! No one guessed the object."
             
         game_over_data = {
@@ -428,14 +445,14 @@ class GameCoordinator:
             
         await self.broadcast_message('game_over', game_over_data)
         
-        print("Game complete! All agents can now exit.")
-        print("To play again, restart the pods with: task game:restart")
+        logger.info("Game complete! All agents can now exit.")
+        logger.info("To play again, restart the pods with: task game:restart")
         
         self.running = False
         
     async def start_new_game(self):
         """Reset state and start a new game round."""
-        print("Starting a new game round...")
+        logger.info("Starting a new game round...")
         
         current_thinker = self.state.thinker
         current_guessers = self.state.guessers.copy() if self.state.guessers else []
@@ -447,15 +464,15 @@ class GameCoordinator:
         self.state.guessers = current_guessers
         self.state.thinker_ready = current_thinker_ready
         
-        print(f"Restored agents - Thinker: {current_thinker}, Guessers: {current_guessers}")
+        logger.debug(f"Restored agents - Thinker: {current_thinker}, Guessers: {current_guessers}")
         
         await asyncio.sleep(2)
         await self.start_game()
         
     async def run(self):
         """Main game loop."""
-        print("Game Coordinator is running...")
-        print("Waiting for agents to join...")
+        logger.info("Game Coordinator is running...")
+        logger.info("Waiting for agents to join...")
         
         self.running = True
         
@@ -469,12 +486,12 @@ class GameCoordinator:
                 
             except Exception as e:
                 if self.running:
-                    print(f"Error in game loop: {e}")
+                    logger.error(f"Error in game loop: {e}")
                     await asyncio.sleep(1)
                 else:
                     break
         
-        print("Coordinator shutting down after game completion.")
+        logger.info("Coordinator shutting down after game completion.")
 
 
 def coordinator_main(slim_config_json: str, shared_secret: str, game_channel: str, 
@@ -491,4 +508,4 @@ def coordinator_main(slim_config_json: str, shared_secret: str, game_channel: st
     try:
         asyncio.run(run_coordinator())
     except KeyboardInterrupt:
-        print("Game Coordinator stopped by user.")
+        logger.info("Game Coordinator stopped by user.")
