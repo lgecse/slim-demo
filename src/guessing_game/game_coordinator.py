@@ -9,8 +9,7 @@ import asyncio
 import json
 import datetime
 from typing import Dict, List, Optional
-import slim_bindings
-
+import slim_bindings  # type: ignore
 
 class GameState:
     """Tracks the current state of the guessing game."""
@@ -102,21 +101,18 @@ class GameCoordinator:
         # or just: "guesser-Bob" or "thinker-Alice"
         
         if '(' in full_id and ')' in full_id:
-            # Extract from parentheses: "...(classroom/guesser-Bob/...)"
             paren_content = full_id.split('(')[1].split(')')[0]
             parts = paren_content.split('/')
             if len(parts) >= 3:
-                agent_part = parts[2]  # "guesser-Bob" or "thinker-Alice"
+                agent_part = parts[2]
                 if '-' in agent_part:
-                    return agent_part.split('-')[1]  # "Bob" or "Alice"
+                    return agent_part.split('-')[1]
         
-        # Fallback: try to extract from simpler formats
         if 'guesser-' in full_id:
             return full_id.split('guesser-')[1].split('/')[0].split(' ')[0]
         elif 'thinker-' in full_id:
             return full_id.split('thinker-')[1].split('/')[0].split(' ')[0]
         
-        # Last resort: return the ID as-is but truncated
         return full_id[:10] + "..." if len(full_id) > 10 else full_id
         
     async def connect_to_slim(self, slim_config: dict, shared_secret: str):
@@ -292,8 +288,6 @@ class GameCoordinator:
             'max_guesses_per_player': self.state.max_guesses_per_player
         })
         
-        # Game will start when thinker sends thinker_game_ready after choosing object
-        
     async def next_turn(self):
         """Start the next guesser's turn."""
         if self.state.is_game_over():
@@ -302,7 +296,6 @@ class GameCoordinator:
             
         current_guesser = self.state.get_current_guesser()
         if current_guesser:
-            print(f"DEBUG: Sending your_turn to {current_guesser}")
             await self.broadcast_message('your_turn', {
                 'guesser': current_guesser,
                 'questions_remaining': self.state.max_questions - self.state.questions_asked,
@@ -319,11 +312,9 @@ class GameCoordinator:
         """Forward question from guesser to thinker."""
         if not self.state.game_active:
             return
-            
+
         current_guesser = self.state.get_current_guesser()
-        # For now, just proceed without strict turn checking to get the game working
-        # TODO: Fix the agent name mapping for proper turn enforcement
-            
+        
         question = data.get('question', '')
         simple_name = self.get_simple_name(guesser)
         print(f"{simple_name}: {question}")
@@ -362,7 +353,7 @@ class GameCoordinator:
         else:
             self.state.next_turn()
             await asyncio.sleep(1)
-            await self.next_turn()
+            asyncio.create_task(self.next_turn())
             
     async def handle_guess(self, guesser: str, data: dict):
         """Forward final guess to thinker for verification."""
@@ -387,25 +378,18 @@ class GameCoordinator:
         guess = data.get('guess', '')
         correct = data.get('correct', False)
         
-        # Note: actual_object is NO LONGER sent in this message
-        # We already received it securely via the 1:1 session at game start
-        
         simple_name = self.get_simple_name(guesser)
         result = " CORRECT!" if correct else " wrong"
         print(f"{simple_name} guessed '{guess}' - {result}")
         
-        # Record the guess (coordinator keeps track internally)
         self.state.add_guess(guesser, guess, correct)
         
-        # Re-broadcast the result, but WITHOUT actual_object for wrong guesses
-        # This prevents spoiling the game while it's still active
         broadcast_data = {
             'guesser': guesser,
             'guess': guess,
             'correct': correct
         }
         
-        # Only reveal actual_object if guess was correct (game is ending anyway)
         if correct and self.actual_object:
             broadcast_data['actual_object'] = self.actual_object
         
@@ -414,7 +398,6 @@ class GameCoordinator:
         if correct or self.state.is_game_over():
             await self.end_game(winner=guesser if correct else None, actual_object=self.actual_object)
         else:
-            # Wrong guess but game continues - advance to next turn
             print(f"Game continues after wrong guess...")
             self.state.next_turn()
             await asyncio.sleep(1)
@@ -431,7 +414,6 @@ class GameCoordinator:
             print("Game Over! No one guessed correctly.")
             result = "Time's up! No one guessed the object."
             
-        # NOW we can reveal the actual object since the game is over
         game_over_data = {
             'winner': winner,
             'result': result,
@@ -441,36 +423,29 @@ class GameCoordinator:
             'game_log': self.state.game_log
         }
         
-        # Include the actual object in game_over message if we have it
         if actual_object:
             game_over_data['actual_object'] = actual_object
             
         await self.broadcast_message('game_over', game_over_data)
         
-        # Game is over - agents should exit
         print("Game complete! All agents can now exit.")
         print("To play again, restart the pods with: task game:restart")
         
-        # Signal coordinator to exit
         self.running = False
         
     async def start_new_game(self):
         """Reset state and start a new game round."""
         print("Starting a new game round...")
         
-        # Save current agent registrations before reset
         current_thinker = self.state.thinker
         current_guessers = self.state.guessers.copy() if self.state.guessers else []
         current_thinker_ready = self.state.thinker_ready
         
-        # Reset game state but keep basic agent info
         self.state = GameState(self.state.max_questions, self.state.max_guesses_per_player)
         
-        # Restore basic agent registrations (but not game readiness)
         self.state.thinker = current_thinker
         self.state.guessers = current_guessers
         self.state.thinker_ready = current_thinker_ready
-        # Note: thinker_game_ready and guessers_game_ready stay False for new game
         
         print(f"Restored agents - Thinker: {current_thinker}, Guessers: {current_guessers}")
         
@@ -486,12 +461,10 @@ class GameCoordinator:
         
         while self.running:
             try:
-                # Listen for messages from agents with timeout to check running flag
                 try:
                     ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
                     await self.handle_agent_message(str(ctx.source_name), payload)
                 except asyncio.TimeoutError:
-                    # Timeout is normal - just check if we should continue
                     continue
                 
             except Exception as e:
@@ -501,7 +474,6 @@ class GameCoordinator:
                 else:
                     break
         
-        # Game is over, exit gracefully
         print("Coordinator shutting down after game completion.")
 
 
@@ -511,8 +483,6 @@ def coordinator_main(slim_config_json: str, shared_secret: str, game_channel: st
     
     async def run_coordinator():
         coordinator = GameCoordinator(game_channel, max_questions, max_guesses)
-        
-        # Parse SLIM config
         slim_config = json.loads(slim_config_json)
         
         await coordinator.connect_to_slim(slim_config, shared_secret)

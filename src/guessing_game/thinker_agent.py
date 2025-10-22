@@ -8,7 +8,7 @@ answer questions about their properties.
 import asyncio
 import json
 import datetime
-import slim_bindings
+import slim_bindings  # type: ignore
 from .llm_agent import LLMThinkerAgent
 
 
@@ -22,31 +22,51 @@ class ThinkerAgent:
         self.slim_app = None
         self.session = None  # Public group session
         self.secret_session = None  # Private 1:1 session with Travis (observer) for secrets
+        self.running = True
         
     async def connect_to_slim(self, slim_config: dict, shared_secret: str):
         """Connect to the SLIM messaging platform."""
-        # Create identity for this thinker agent
+        # Provider: proves our identity
         provider = slim_bindings.PyIdentityProvider.SharedSecret(
             identity=f"thinker-{self.agent_name}",
             shared_secret=shared_secret
         )
+        # Verifier: verifies ANY identity with this shared secret (for peer-to-peer)
         verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
-            identity=f"thinker-{self.agent_name}",
+            identity="",  # Empty = accept any identity with the shared secret
             shared_secret=shared_secret
         )
         
-        # Create local identity
         local_name = slim_bindings.PyName("school", "classroom", f"thinker-{self.agent_name}")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
-        # Connect to SLIM service
         await self.slim_app.connect(slim_config)
         print(f"Thinker Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
         
-        # Wait for game session to exist, then join it
+        # Join game session
         print("Looking for game session...")
         self.session = await self.slim_app.listen_for_session()
         print(f"Joined game session!")
+        
+        # Create PointToPoint session with Travis (optional - game can run without him)
+        print("Creating secret PointToPoint session with Travis...")
+        
+        try:
+            travis_name = slim_bindings.PyName("school", "classroom", "translator-Travis")
+            await self.slim_app.set_route(travis_name)
+            
+            self.secret_session = await self.slim_app.create_session(
+                slim_bindings.PySessionConfiguration.PointToPoint(
+                    peer_name=travis_name,
+                    max_retries=3,
+                    timeout=datetime.timedelta(seconds=5),
+                    mls_enabled=True
+                )
+            )
+            print(f"✓ Created secret PointToPoint session with Travis!")
+        except Exception as e:
+            print(f"Note: Could not establish secret session with Travis (optional observer): {e}")
+            print("Continuing game without Travis...")
         
     async def send_message(self, msg_type: str, data: dict):
         """Send a message to the game coordinator."""
@@ -64,20 +84,23 @@ class ThinkerAgent:
         print(f"I'm thinking of: {object_name}")
         print(f"(Shh! Don't tell the guessers!)")
         
-        # Send the secret object to Travis (observer) via our secure 1:1 session
         await self.send_secret_to_observer(object_name)
     
     async def send_secret_to_observer(self, object_name: str):
         """Send the secret object to Travis (observer) via secure 1:1 session."""
-        # Wait for secret session to be established
-        max_wait = 100  # 10 seconds
+        print(f"Attempting to send secret '{object_name}' to Travis...")
+        print(f"Secret session status: {self.secret_session is not None}")
+        
+        max_wait = 200  # 20 seconds
         wait_count = 0
         while not self.secret_session and wait_count < max_wait:
+            if wait_count % 10 == 0:  # Log every second
+                print(f"Waiting for secret session... ({wait_count/10:.0f}s)")
             await asyncio.sleep(0.1)
             wait_count += 1
         
         if not self.secret_session:
-            print("WARNING: Secret session not established, cannot send secret securely!")
+            print(f"WARNING: Secret session not established after {max_wait/10}s, cannot send secret securely!")
             return
         
         message = {
@@ -87,7 +110,7 @@ class ThinkerAgent:
         }
         
         await self.secret_session.publish(json.dumps(message).encode())
-        print(f"Sent secret object '{object_name}' to Travis (observer) via secure 1:1 session")
+        print(f"✓ Sent secret object '{object_name}' to Travis (observer) via secure 1:1 session")
         
     async def answer_question(self, question: str) -> str:
         """Use LLM to intelligently answer yes/no questions about the current object."""
@@ -144,17 +167,12 @@ class ThinkerAgent:
             else:
                 print(f"Wrong! It's not '{guess}', it's '{self.current_object['name']}'")
             
-            # Send guess result WITHOUT actual_object
-            # Coordinator already knows the object from our secure 1:1 session transmission
+            # Don't include actual_object to prevent leaking the secret on the public channel
             result_data = {
                 'guesser': guesser,
                 'guess': guess,
                 'correct': correct
             }
-            
-            # Note: We don't include actual_object here because:
-            # 1. Coordinator already received it securely at game start
-            # 2. This prevents leaking the secret on the public channel
             
             await self.send_message('guess_result', result_data)
             
@@ -165,7 +183,6 @@ class ThinkerAgent:
             else:
                 print(f"Game over! No one guessed '{self.current_object['name']}'.")
             
-            # Signal to exit after game over
             self.running = False
             print("Thinker agent exiting after game completion.")
             
@@ -186,67 +203,25 @@ class ThinkerAgent:
         print("Thinker ready with object - game can begin!")
         
     async def run(self):
-        """Main agent loop - listens on both public and secret sessions."""
+        """Main agent loop - listens on public game session."""
         print(f"Thinker Agent '{self.agent_name}' is connected and waiting for game start...")
         
-        # Send initial ready signal (connection ready)
         await self.send_ready()
-        self.running = True
         
-        async def listen_public_session():
-            """Listen for messages on the public group session."""
+        try:
             while self.running:
                 try:
-                    # Use timeout to allow checking running flag periodically
-                    try:
-                        ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
-                        message = json.loads(payload.decode())
-                        await self.handle_message(message)
-                    except asyncio.TimeoutError:
-                        # Timeout is normal - just continue to check running flag
-                        continue
+                    ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
+                    message = json.loads(payload.decode())
+                    await self.handle_message(message)
+                except asyncio.TimeoutError:
+                    continue
                 except Exception as e:
                     if self.running:
                         print(f"Error in public session: {e}")
                         await asyncio.sleep(1)
                     else:
                         break
-        
-        async def listen_secret_session():
-            """Wait for and listen on the secret 1:1 session with Travis (observer)."""
-            try:
-                # Wait for secret session invitation
-                print("Waiting for secret 1:1 session invitation from Travis (observer)...")
-                self.secret_session = await self.slim_app.listen_for_session()
-                print(f"Joined secret 1:1 session with Travis (observer)!")
-                
-                # Now listen for any messages on the secret session (though we mainly send, not receive)
-                while self.running:
-                    try:
-                        # Use timeout to allow checking running flag periodically
-                        try:
-                            ctx, payload = await asyncio.wait_for(self.secret_session.get_message(), timeout=1.0)
-                            message = json.loads(payload.decode())
-                            # Handle any secret messages if needed
-                            pass
-                        except asyncio.TimeoutError:
-                            # Timeout is normal - just continue to check running flag
-                            continue
-                    except Exception as e:
-                        if self.running:
-                            print(f"Error in secret session: {e}")
-                            await asyncio.sleep(1)
-                        else:
-                            break
-            except Exception as e:
-                print(f"Failed to join secret session: {e}")
-        
-        # Listen on both sessions concurrently
-        try:
-            await asyncio.gather(
-                listen_public_session(),
-                listen_secret_session()
-            )
         except Exception as e:
             print(f"Error in main loop: {e}")
         

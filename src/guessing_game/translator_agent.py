@@ -6,7 +6,7 @@ import asyncio
 import json
 import datetime
 from typing import Optional
-import slim_bindings
+import slim_bindings  # type: ignore
 from .llm_agent import LLMAgent
 
 
@@ -26,12 +26,14 @@ class TranslatorAgent:
     async def connect_to_slim(self, slim_config: dict, shared_secret: str):
         """Connect to the SLIM messaging platform."""
         # Create identity for this translator agent
+        # Provider: proves our identity
         provider = slim_bindings.PyIdentityProvider.SharedSecret(
             identity=f"translator-{self.agent_name}",
             shared_secret=shared_secret
         )
+        # Verifier: verifies ANY identity with this shared secret (not just our own)
         verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
-            identity=f"translator-{self.agent_name}",
+            identity="",  # Empty = verify any identity with the shared secret
             shared_secret=shared_secret
         )
         
@@ -53,36 +55,10 @@ class TranslatorAgent:
         print(f"Session ID: {self.session}")
         print(f"Now observing and translating messages to {self.target_language}...")
         
-        # Establish secret session with Alice for monitoring
-        await self.establish_secret_session_with_alice()
-    
-    async def establish_secret_session_with_alice(self):
-        """Establish a 1:1 session with Alice to receive the secret object for monitoring."""
-        try:
-            print(f"Establishing secure 1:1 session with Alice for secret monitoring...")
-            
-            # Create a 1:1 session by creating a Group session with a unique channel
-            secret_channel = slim_bindings.PyName("school", "classroom", f"secret-alice-{self.agent_name}")
-            
-            self.secret_session = await self.slim_app.create_session(
-                slim_bindings.PySessionConfiguration.Group(
-                    channel_name=secret_channel,
-                    max_retries=5,
-                    timeout=datetime.timedelta(seconds=10),
-                    mls_enabled=True  # End-to-end encryption
-                )
-            )
-            
-            # Invite Alice to this secret channel
-            alice_name = slim_bindings.PyName("school", "classroom", "thinker-Alice")
-            await self.slim_app.set_route(alice_name)
-            await self.secret_session.invite(alice_name)
-            
-            print(f"Secure 1:1 session established and Alice invited")
-        except Exception as e:
-            print(f"Failed to establish secret session: {e}")
-            import traceback
-            traceback.print_exc()
+        # Wait for Alice to create secret PointToPoint session (Travis is receiver)
+        print("Waiting for Alice to create secret PointToPoint session...")
+        self.secret_session = await self.slim_app.listen_for_session()
+        print(f"Received secret PointToPoint session from Alice!")
     
     async def translate_text(self, english_text: str) -> str:
         """Use LLM to translate English text to the target language."""
@@ -106,18 +82,14 @@ class TranslatorAgent:
     
     def extract_text_from_message(self, message: dict) -> Optional[str]:
         """Extract any text content from a message for translation."""
-        # Convert the entire message to a readable string
         msg_type = message.get('type', '')
         data = message.get('data', {})
         
-        # Build a simple text representation of the message
         text_parts = []
         
-        # Add message type if available
         if msg_type:
             text_parts.append(f"[{msg_type}]")
         
-        # Extract all string values from data
         for key, value in data.items():
             if isinstance(value, str) and value.strip():
                 text_parts.append(f"{key}: {value}")
@@ -133,28 +105,23 @@ class TranslatorAgent:
         """Process incoming message and translate to target language."""
         msg_type = message.get('type', '')
         
-        # Only translate important game events, skip internal/duplicate messages
+        # Only translate important game events
         important_messages = {
-            'answer_from_thinker',  # Question and answer pair
-            'guess_result',          # Guess and result
-            'game_over',             # Game end summary
-            'game_start'             # New game starting
+            'answer_from_thinker',
+            'guess_result',
+            'game_over',
+            'game_start'
         }
         
         if msg_type not in important_messages:
-            return  # Skip internal/duplicate messages
+            return
         
-        # Extract any text from the message
         english_text = self.extract_text_from_message(message)
         
         if english_text:
-            # Translate to target language
             translated_text = await self.translate_text(english_text)
-            
-            # Output the translation
             print(f"[{self.target_language}] {translated_text}")
         
-        # Exit after game over
         if msg_type == 'game_over':
             self.running = False
             print("Translator agent exiting after game completion.")
@@ -165,7 +132,6 @@ class TranslatorAgent:
             """Listen for messages on the public game session."""
             try:
                 while self.running:
-                    # Receive any message from the game session with timeout
                     try:
                         ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
                         
@@ -176,7 +142,6 @@ class TranslatorAgent:
                             except json.JSONDecodeError:
                                 continue
                     except asyncio.TimeoutError:
-                        # Timeout is normal - just continue to check running flag
                         continue
                     
             except asyncio.CancelledError:
@@ -187,7 +152,6 @@ class TranslatorAgent:
         
         async def listen_secret_session():
             """Listen for secret messages from Alice."""
-            # Wait for secret session to be established
             while self.running and not self.secret_session:
                 await asyncio.sleep(0.1)
             
@@ -202,12 +166,10 @@ class TranslatorAgent:
                         msg_type = message.get('type')
                         
                         if msg_type == 'secret_object':
-                            # Alice is sharing the secret with us for monitoring!
                             self.secret_object = message.get('data', {}).get('object')
                             print(f"[OBSERVER SECRET] Received secret from Alice: '{self.secret_object}'")
                             print(f"[OBSERVER SECRET] This was transmitted via secure 1:1 session - only Travis knows!")
                     except asyncio.TimeoutError:
-                        # Timeout is normal - just continue to check running flag
                         continue
                     
             except asyncio.CancelledError:
@@ -216,7 +178,6 @@ class TranslatorAgent:
                 if self.running:
                     print(f"Error in secret session: {e}")
         
-        # Run both session listeners concurrently
         try:
             await asyncio.gather(
                 listen_public_session(),

@@ -19,7 +19,7 @@ spec:
     command: ["guessing-game", "translator"]
     args:
       - "--agent-name=Travis"
-      - "--target-language=Spanish"
+      - "--target-language=Hungarian"
       - "--slim={\"endpoint\":\"http://slim.slim.svc.cluster.local:46357\",\"tls\":{\"insecure\":true}}"
       - "--shared-secret=secret123"
       - "--game-channel=school/classroom/guessing-game"

@@ -5,7 +5,7 @@ LLM-powered agent base class for intelligent question answering and reasoning.
 import json
 import os
 from typing import Dict, List, Optional
-import openai
+import openai  # type: ignore
 
 
 class LLMAgent:
@@ -37,7 +37,6 @@ class LLMAgent:
     async def ask_llm(self, messages: List[Dict[str, str]], max_tokens: int = 150) -> str:
         """Send a request to the LLM and get a response."""
         try:
-            # Use temperature=1.0 for all models to ensure compatibility
             temperature = 1.0
             
             response = await self.client.chat.completions.create(
@@ -66,7 +65,6 @@ class LLMThinkerAgent(LLMAgent):
         """Use LLM to choose an interesting object for the guessing game."""
         import random
         
-        # Rotate through different English example sets to encourage variety
         example_sets = [
             ["apple", "car", "book", "cat"],
             ["ball", "tree", "spoon", "dog"], 
@@ -75,7 +73,6 @@ class LLMThinkerAgent(LLMAgent):
             ["hat", "bus", "lamp", "bear"]
         ]
         
-        # Add variety with different focus areas each time
         focus_areas = [
             "Think about objects from around the house, school, or outside",
             "Consider things children play with, eat, or use daily", 
@@ -84,19 +81,17 @@ class LLMThinkerAgent(LLMAgent):
             "Consider food, toys, or colorful objects children love"
         ]
         
-        # Random selections for variety
         examples = random.choice(example_sets)
         focus = random.choice(focus_areas)
         categories = random.sample([
             "fruits", "vegetables", "animals", "toys", "school supplies", 
             "sports equipment", "household items", "vehicles", "foods", 
             "clothing", "nature objects", "furniture", "tools"
-        ], 6)  # Pick 6 random categories
+        ], 6)
         
         examples_text = ", ".join([f"'{ex}'" for ex in examples])
         categories_text = ", ".join(categories)
         
-        # Add timestamp randomness to prevent LLM pattern repetition
         import time
         time_seed = int(time.time()) % 1000
         
@@ -112,7 +107,6 @@ class LLMThinkerAgent(LLMAgent):
         ]
         
         self.current_object = await self.ask_llm(messages, max_tokens=20)
-        
         # Get detailed context about the object for answering questions
         await self._get_object_context()
         
@@ -153,11 +147,9 @@ class LLMThinkerAgent(LLMAgent):
         if not self.current_object:
             return False
         
-        # First, do a simple case-insensitive comparison
         if guess.lower().strip() == self.current_object.lower().strip():
             return True
             
-        # If exact match fails, use LLM for flexible matching (handles synonyms, plural forms, etc.)
         messages = [
             {
                 "role": "system", 
@@ -187,7 +179,6 @@ class LLMGuesserAgent(LLMAgent):
         """Update the agent's memory of the game so far."""
         self.game_history = game_log
         
-        # Count my own guesses from the game log
         self.my_guesses = len([entry for entry in game_log 
                               if entry.get('type') == 'guess' and 
                               self.agent_name in entry.get('guesser', '')])
@@ -197,9 +188,8 @@ class LLMGuesserAgent(LLMAgent):
         if not self.game_history:
             return False
         
-        # Get recent Q&A for context
         recent_qa = []
-        for entry in self.game_history[-10:]:  # Last 10 entries
+        for entry in self.game_history[-10:]:
             if entry['type'] == 'question':
                 recent_qa.append(f"Q: {entry['question']} A: {entry['answer']}")
         
@@ -223,10 +213,8 @@ class LLMGuesserAgent(LLMAgent):
     
     async def ask_question(self) -> str:
         """Use LLM to generate strategic questions based on personality."""
-        
-        # Get recent Q&A for context
         recent_qa = []
-        for entry in self.game_history[-8:]:  # Last 8 entries
+        for entry in self.game_history[-8:]:
             if entry['type'] == 'question':
                 recent_qa.append(f"Q: {entry['question']} A: {entry['answer']}")
         
@@ -255,8 +243,6 @@ class LLMGuesserAgent(LLMAgent):
     
     async def make_guess(self) -> str:
         """Use LLM to make an educated guess based on gathered information."""
-        
-        # Compile all Q&A for analysis
         qa_pairs = []
         
         for entry in self.game_history:
@@ -265,7 +251,6 @@ class LLMGuesserAgent(LLMAgent):
         
         qa_text = "\n".join(qa_pairs) if qa_pairs else "No information available."
         
-        # Get ALL wrong guesses from ALL players to avoid repeating them
         wrong_guesses = []
         other_player_guesses = []
         my_wrong_guesses = []
@@ -275,7 +260,6 @@ class LLMGuesserAgent(LLMAgent):
                 guess = entry.get('guess', '')
                 wrong_guesses.append(guess)
                 
-                # Track whether this was my guess or another player's guess
                 if self.agent_name in entry.get('guesser', ''):
                     my_wrong_guesses.append(guess)
                 else:
@@ -283,7 +267,7 @@ class LLMGuesserAgent(LLMAgent):
         
         wrong_guesses_text = ""
         if wrong_guesses:
-            unique_wrong_guesses = list(set(wrong_guesses))  # Remove duplicates
+            unique_wrong_guesses = list(set(wrong_guesses))
             wrong_guesses_text = f"\n\nIMPORTANT - These guesses have already been tried by ALL players and are WRONG (DO NOT repeat ANY of these):\n" + ", ".join(unique_wrong_guesses)
             
             if other_player_guesses:

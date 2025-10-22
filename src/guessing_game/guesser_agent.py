@@ -9,7 +9,7 @@ import asyncio
 import json
 import datetime
 from typing import List, Dict
-import slim_bindings
+import slim_bindings  # type: ignore
 from .llm_agent import LLMGuesserAgent
 
 
@@ -26,7 +26,6 @@ class GuesserAgent:
             
     async def connect_to_slim(self, slim_config: dict, shared_secret: str):
         """Connect to the SLIM messaging platform."""
-        # Create identity for this guesser agent
         provider = slim_bindings.PyIdentityProvider.SharedSecret(
             identity=f"guesser-{self.agent_name}",
             shared_secret=shared_secret
@@ -36,15 +35,12 @@ class GuesserAgent:
             shared_secret=shared_secret
         )
         
-        # Create local identity
         local_name = slim_bindings.PyName("school", "classroom", f"guesser-{self.agent_name}")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
-        # Connect to SLIM service
         await self.slim_app.connect(slim_config)
         print(f"Guesser Agent '{self.agent_name}' connected! ID: {self.slim_app.id_str}")
         
-        # Wait for game session to exist, then join it
         print("Looking for game session...")
         self.session = await self.slim_app.listen_for_session()
         print(f"Joined game session!")
@@ -79,17 +75,17 @@ class GuesserAgent:
             
         elif msg_type == 'your_turn':
             current_guesser = data.get('guesser')
-            if current_guesser == f"guesser-{self.agent_name}":
+            my_name = f"guesser-{self.agent_name}"
+            
+            if current_guesser == my_name:
                 self.my_turn = True
                 game_log = data.get('game_log', [])
                 questions_remaining = data.get('questions_remaining', 0)
                 
                 print(f"It's my turn! ({questions_remaining} questions remaining)")
                 
-                # Update LLM agent with game history
                 self.llm_agent.update_game_history(game_log)
                 
-                # Use LLM to decide whether to ask a question or make a guess
                 should_guess = await self.llm_agent.should_make_guess() or questions_remaining <= 2
                 
                 if should_guess:
@@ -195,19 +191,16 @@ class GuesserAgent:
         print(f"Guesser Agent '{self.agent_name}' is ready!")
         print(f"Using LLM-powered {self.strategy_name} strategy")
         
-        # Announce readiness
         await self.send_ready()
         self.running = True
         
         while self.running:
             try:
-                # Listen for messages from coordinator with timeout to check running flag
                 try:
                     ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
                     message = json.loads(payload.decode())
                     await self.handle_message(message)
                 except asyncio.TimeoutError:
-                    # Timeout is normal - just check if we should continue
                     continue
                 
             except Exception as e:
