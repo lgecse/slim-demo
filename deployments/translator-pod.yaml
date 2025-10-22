@@ -22,7 +22,7 @@ spec:
       - "--target-language=Hungarian"
       - "--slim={\"endpoint\":\"http://slim.slim.svc.cluster.local:46357\",\"tls\":{\"insecure\":true}}"
       - "--shared-secret=secret123"
-      - "--game-channel=school/classroom/guessing-game"
+      - "--game-channel=classroom/guessing-game"
     resources:
       requests:
         memory: "256Mi"

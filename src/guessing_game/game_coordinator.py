@@ -128,7 +128,7 @@ class GameCoordinator:
         )
         
         # Create local identity
-        local_name = slim_bindings.PyName("school", "classroom", "coordinator")
+        local_name = slim_bindings.PyName("classroom", "coordinator")
         self.slim_app = await slim_bindings.Slim.new(local_name, provider, verifier)
         
         # Connect to SLIM service
@@ -136,7 +136,7 @@ class GameCoordinator:
         print(f"Game Coordinator connected! ID: {self.slim_app.id_str}")
         
         # Create group session for the game
-        channel = slim_bindings.PyName("school", "classroom", "guessing-game")
+        channel = slim_bindings.PyName("classroom", "guessing-game")
         self.session = await self.slim_app.create_session(
             slim_bindings.PySessionConfiguration.Group(
                 channel_name=channel,
@@ -161,12 +161,12 @@ class GameCoordinator:
         
         # Optional observers (invited but not required for game to start)
         optional_observers = [
-            "school/classroom/translator-Travis"
+            "classroom/translator-Travis"
         ]
         
         for agent_id in expected_agents:
             try:
-                agent_name = slim_bindings.PyName("school", "classroom", agent_id.split("/")[-1])
+                agent_name = slim_bindings.PyName("classroom", agent_id.split("/")[-1])
                 await self.slim_app.set_route(agent_name)
                 await self.session.invite(agent_name)
                 print(f"Invited {agent_id} to the game")
@@ -176,7 +176,7 @@ class GameCoordinator:
         # Invite optional observers
         for agent_id in optional_observers:
             try:
-                agent_name = slim_bindings.PyName("school", "classroom", agent_id.split("/")[-1])
+                agent_name = slim_bindings.PyName("classroom", agent_id.split("/")[-1])
                 await self.slim_app.set_route(agent_name)
                 await self.session.invite(agent_name)
                 print(f"Invited optional observer {agent_id}")
