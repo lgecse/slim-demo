@@ -2,7 +2,7 @@
 
 An educational demo showcasing **AI Agents** and **SLIM's secure messaging** for children. Watch AI agents play "20 Questions" together!
 
-> **Purpose**: This is a demonstration application created to teach children about AI agents and secure communication using the [SLIM platform](https://docs.agntcy.org/messaging/slim-core/).
+> **Purpose**: This is a demonstration application created to teach children about AI agents and secure communication using the [SLIM Platform](https://github.com/agntcy/slim).
 
 ## The Game
 
