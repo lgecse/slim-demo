@@ -27,6 +27,7 @@ class ThinkerAgent:
         self.session = None  # Public group session
         self.secret_session = None  # Private 1:1 session with Travis (observer) for secrets
         self.running = True
+        self.processing_tasks = []  # Track background processing tasks
         
     async def connect_to_slim(self, slim_config: dict, shared_secret: str):
         """Connect to the SLIM messaging platform."""
@@ -143,43 +144,25 @@ class ThinkerAgent:
             language_rule = rules.get('language', 'Game will be in English')
             logger.info(f"Received game invitation for {target_audience} - choosing child-friendly object...")
             logger.debug(f"{language_rule}")
-            await self.choose_new_object()
-            await self.send_game_ready()
+            # Process in background to avoid blocking message loop
+            task = asyncio.create_task(self._handle_game_invitation())
+            self.processing_tasks.append(task)
             
         elif msg_type == 'question_for_thinker':
             question = data.get('question', '')
             guesser = data.get('guesser', '')
-            
             logger.info(f"Question from {guesser}: '{question}'")
-            answer = await self.answer_question(question)
-            logger.info(f"My answer: '{answer}'")
-            
-            await self.send_message('answer', {
-                'question': question,
-                'answer': answer,
-                'guesser': guesser
-            })
+            # Process in background to avoid blocking message loop
+            task = asyncio.create_task(self._handle_question(question, guesser))
+            self.processing_tasks.append(task)
             
         elif msg_type == 'guess_for_thinker':
             guess = data.get('guess', '')
             guesser = data.get('guesser', '')
-            
             logger.info(f"Guess from {guesser}: '{guess}'")
-            correct = await self.check_guess(guess)
-            
-            if correct:
-                logger.info(f"Correct! The object was '{self.current_object['name']}'")
-            else:
-                logger.info(f"Wrong! It's not '{guess}', it's '{self.current_object['name']}'")
-            
-            # Don't include actual_object to prevent leaking the secret on the public channel
-            result_data = {
-                'guesser': guesser,
-                'guess': guess,
-                'correct': correct
-            }
-            
-            await self.send_message('guess_result', result_data)
+            # Process in background to avoid blocking message loop
+            task = asyncio.create_task(self._handle_guess(guess, guesser))
+            self.processing_tasks.append(task)
             
         elif msg_type == 'game_over':
             winner = data.get('winner')
@@ -190,6 +173,49 @@ class ThinkerAgent:
             
             self.running = False
             logger.info("Thinker agent exiting after game completion.")
+    
+    async def _handle_game_invitation(self):
+        """Handle game invitation in background task."""
+        try:
+            await self.choose_new_object()
+            await self.send_game_ready()
+        except Exception as e:
+            logger.error(f"Error handling game invitation: {e}")
+    
+    async def _handle_question(self, question: str, guesser: str):
+        """Handle question in background task to avoid blocking message loop."""
+        try:
+            answer = await self.answer_question(question)
+            logger.info(f"My answer: '{answer}'")
+            
+            await self.send_message('answer', {
+                'question': question,
+                'answer': answer,
+                'guesser': guesser
+            })
+        except Exception as e:
+            logger.error(f"Error handling question: {e}")
+    
+    async def _handle_guess(self, guess: str, guesser: str):
+        """Handle guess in background task to avoid blocking message loop."""
+        try:
+            correct = await self.check_guess(guess)
+            
+            result_data = {
+                'guesser': guesser,
+                'guess': guess,
+                'correct': correct
+            }
+
+            if correct:
+                logger.info(f"Correct! The object was '{self.current_object['name']}'")
+                result_data['actual_object'] = self.current_object['name']
+            else:
+                logger.info(f"Wrong! It's not '{guess}', it's '{self.current_object['name']}'")
+            
+            await self.send_message('guess_result', result_data)
+        except Exception as e:
+            logger.error(f"Error handling guess: {e}")
             
     async def send_ready(self):
         """Tell the coordinator that this agent is connected and ready."""
@@ -216,11 +242,9 @@ class ThinkerAgent:
         try:
             while self.running:
                 try:
-                    ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
+                    ctx, payload = await self.session.get_message()
                     message = json.loads(payload.decode())
                     await self.handle_message(message)
-                except asyncio.TimeoutError:
-                    continue
                 except Exception as e:
                     if self.running:
                         logger.error(f"Error in public session: {e}")

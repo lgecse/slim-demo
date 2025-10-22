@@ -96,7 +96,6 @@ class GameCoordinator:
         self.slim_app = None
         self.session = None  # Group session for public messages
         self.running = True
-        self.actual_object = None  # Track the actual object for final reveal
     
     def get_simple_name(self, full_id: str) -> str:
         """Extract simple agent name from SLIM ID for readable logs."""
@@ -205,6 +204,7 @@ class GameCoordinator:
         try:
             message = json.loads(payload.decode())
             msg_type = message.get('type')
+            logger.debug(f"Message type: {message.get('type')}")
             
             if msg_type == 'agent_ready':
                 await self.handle_agent_ready(source_name, message['data'])
@@ -218,7 +218,8 @@ class GameCoordinator:
                 await self.handle_guess(source_name, message['data'])
             elif msg_type == 'guess_result':
                 await self.handle_guess_result(source_name, message['data'])
-                
+            
+            logger.debug("Message handled successfully")
         except Exception as e:
             logger.error(f"Error processing message from {source_name}: {e}")
     
@@ -394,6 +395,7 @@ class GameCoordinator:
         guesser = data.get('guesser', '')
         guess = data.get('guess', '')
         correct = data.get('correct', False)
+        actual_object = data.get('actual_object', None)
         
         simple_name = self.get_simple_name(guesser)
         result = " CORRECT!" if correct else " wrong"
@@ -407,13 +409,13 @@ class GameCoordinator:
             'correct': correct
         }
         
-        if correct and self.actual_object:
-            broadcast_data['actual_object'] = self.actual_object
+        if correct and actual_object:
+            broadcast_data['actual_object'] = actual_object
         
         await self.broadcast_message('guess_result', broadcast_data)
         
         if correct or self.state.is_game_over():
-            await self.end_game(winner=guesser if correct else None, actual_object=self.actual_object)
+            await self.end_game(winner=guesser if correct else None, actual_object=actual_object if actual_object else None)
         else:
             logger.info(f"Game continues after wrong guess...")
             self.state.next_turn()
@@ -478,12 +480,10 @@ class GameCoordinator:
         
         while self.running:
             try:
-                try:
-                    ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
-                    await self.handle_agent_message(str(ctx.source_name), payload)
-                except asyncio.TimeoutError:
-                    continue
-                
+                logger.debug("Waiting for message...")
+                ctx, payload = await self.session.get_message()
+                logger.debug("Got message!!")
+                await self.handle_agent_message(str(ctx.source_name), payload)
             except Exception as e:
                 if self.running:
                     logger.error(f"Error in game loop: {e}")

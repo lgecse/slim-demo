@@ -26,6 +26,7 @@ class GuesserAgent:
         self.slim_app = None
         self.session = None
         self.my_turn = False
+        self.turn_task = None  # Track background turn processing task
             
     async def connect_to_slim(self, slim_config: dict, shared_secret: str):
         """Connect to the SLIM messaging platform."""
@@ -63,6 +64,8 @@ class GuesserAgent:
         msg_type = message.get('type')
         data = message.get('data', {})
         
+        logger.debug(f"handle_message called with type: {msg_type}")
+        
         if msg_type == 'game_invitation':
             rules = data.get('rules', {})
             target_audience = rules.get('target_audience', 'children')
@@ -89,25 +92,16 @@ class GuesserAgent:
             logger.debug(f"  Match: {current_guesser == my_name}")
             
             if current_guesser == my_name:
-                logger.debug(f"It's MY turn! Processing...")
-                self.my_turn = True
-                game_log = data.get('game_log', [])
+                logger.debug(f"It's MY turn! Processing in background task...")
+                # Cancel any existing turn task (shouldn't happen, but be safe)
+                if self.turn_task and not self.turn_task.done():
+                    logger.warning("Previous turn task still running, cancelling it")
+                    self.turn_task.cancel()
                 
-                logger.info(f"It's my turn! ({questions_remaining} questions remaining)")
-                
-                self.llm_agent.update_game_history(game_log)
-                
-                should_guess = await self.llm_agent.should_make_guess() or questions_remaining <= 2
-                
-                logger.debug(f"Decision: {'GUESS' if should_guess else 'ASK QUESTION'}")
-                
-                if should_guess:
-                    await self.make_guess(game_log)
-                else:
-                    await self.ask_question(game_log)
-                    
-                self.my_turn = False
-                logger.debug(f"Turn complete")
+                # Process turn in background so message loop can continue
+                self.turn_task = asyncio.create_task(
+                    self._process_my_turn(questions_remaining, data.get('game_log', []))
+                )
             else:
                 logger.debug(f"Not my turn, ignoring")
             
@@ -168,28 +162,70 @@ class GuesserAgent:
             # Signal to exit after game over
             self.running = False
             logger.info("Guesser agent exiting after game completion.")
+    
+    async def _process_my_turn(self, questions_remaining: int, game_log: List[Dict]):
+        """Process this agent's turn in a background task to avoid blocking message loop."""
+        try:
+            self.my_turn = True
+            logger.info(f"It's my turn! ({questions_remaining} questions remaining)")
+            
+            self.llm_agent.update_game_history(game_log)
+            
+            try:
+                should_guess = await asyncio.wait_for(self.llm_agent.should_make_guess(), timeout=10.0) or questions_remaining <= 2
+            except asyncio.TimeoutError:
+                logger.error("LLM timeout while deciding action! Asking question as fallback.")
+                should_guess = False
+            
+            logger.debug(f"Decision: {'GUESS' if should_guess else 'ASK QUESTION'}")
+            
+            if should_guess:
+                await self.make_guess(game_log)
+            else:
+                await self.ask_question(game_log)
+                
+            self.my_turn = False
+            logger.debug(f"Turn complete")
+        except asyncio.CancelledError:
+            logger.warning("Turn processing was cancelled")
+            self.my_turn = False
+        except Exception as e:
+            logger.error(f"Error processing turn: {e}")
+            self.my_turn = False
                 
     async def ask_question(self, game_log: List[Dict] = None):
         """Use LLM to ask an intelligent question about the object."""
         logger.debug(f"Calling LLM to generate question...")
-        question = await self.llm_agent.ask_question()
-        logger.debug(f"LLM generated question: '{question}'")
-        logger.info(f"I'm asking: '{question}'")
-        
-        logger.debug(f"Sending 'question' message to coordinator...")
-        await self.send_message('question', {
-            'question': question
-        })
-        logger.debug(f"Question sent")
+        try:
+            question = await asyncio.wait_for(self.llm_agent.ask_question(), timeout=30.0)
+            logger.debug(f"LLM generated question: '{question}'")
+            logger.info(f"I'm asking: '{question}'")
+            
+            logger.debug(f"Sending 'question' message to coordinator...")
+            await self.send_message('question', {
+                'question': question
+            })
+            logger.debug(f"Question sent")
+        except asyncio.TimeoutError:
+            logger.error("LLM timeout while generating question! Using fallback.")
+            await self.send_message('question', {
+                'question': "Is it something you can hold in your hand?"
+            })
         
     async def make_guess(self, game_log: List[Dict] = None):
         """Use LLM to make an educated guess about the object."""
-        guess = await self.llm_agent.make_guess()
-        logger.info(f"I'm guessing: '{guess}'")
-        
-        await self.send_message('guess', {
-            'guess': guess
-        })
+        try:
+            guess = await asyncio.wait_for(self.llm_agent.make_guess(), timeout=30.0)
+            logger.info(f"I'm guessing: '{guess}'")
+            
+            await self.send_message('guess', {
+                'guess': guess
+            })
+        except asyncio.TimeoutError:
+            logger.error("LLM timeout while generating guess! Using fallback.")
+            await self.send_message('guess', {
+                'guess': "ball"
+            })
         
     async def send_ready(self):
         """Tell the coordinator that this agent is ready."""
@@ -216,14 +252,13 @@ class GuesserAgent:
         
         while self.running:
             try:
-                try:
-                    ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
-                    logger.debug("Got message!!")
-                    message = json.loads(payload.decode())
-                    await self.handle_message(message)
-                except asyncio.TimeoutError:
-                    continue
-                
+                logger.debug("Waiting for message...")
+                ctx, payload = await self.session.get_message()
+                logger.debug("Got message!!")
+                message = json.loads(payload.decode())
+                logger.debug(f"Message type: {message.get('type')}")
+                await self.handle_message(message)
+                logger.debug("Message handled successfully")
             except Exception as e:
                 if self.running:
                     logger.error(f"Error in agent loop: {e}")

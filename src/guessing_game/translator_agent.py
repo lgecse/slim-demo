@@ -138,7 +138,7 @@ class TranslatorAgent:
             try:
                 while self.running:
                     try:
-                        ctx, payload = await asyncio.wait_for(self.session.get_message(), timeout=1.0)
+                        ctx, payload = await self.session.get_message()
                         
                         if payload:
                             try:
@@ -146,8 +146,9 @@ class TranslatorAgent:
                                 await self.handle_message(message)
                             except json.JSONDecodeError:
                                 continue
-                    except asyncio.TimeoutError:
-                        continue
+                    except Exception as e:
+                        logger.error(f"Error receiving public message: {e}")
+                        await asyncio.sleep(1)
                     
             except asyncio.CancelledError:
                 logger.info(f"Translator Agent '{self.agent_name}' is shutting down...")
@@ -166,7 +167,7 @@ class TranslatorAgent:
             try:
                 while self.running:
                     try:
-                        ctx, payload = await asyncio.wait_for(self.secret_session.get_message(), timeout=1.0)
+                        ctx, payload = await self.secret_session.get_message()
                         message = json.loads(payload.decode())
                         msg_type = message.get('type')
                         
@@ -174,8 +175,9 @@ class TranslatorAgent:
                             self.secret_object = message.get('data', {}).get('object')
                             logger.info(f"[OBSERVER SECRET] Received secret from Alice: '{self.secret_object}'")
                             logger.info(f"[OBSERVER SECRET] This was transmitted via secure 1:1 session - only Travis knows!")
-                    except asyncio.TimeoutError:
-                        continue
+                    except Exception as e:
+                        logger.error(f"Error receiving secret message: {e}")
+                        await asyncio.sleep(1)
                     
             except asyncio.CancelledError:
                 pass
